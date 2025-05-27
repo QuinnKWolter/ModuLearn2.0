@@ -1,5 +1,21 @@
+const pino = require('pino');
+const logger = pino();
+
 const errorHandler = (err, req, res, next) => {
-  console.error('Error:', err);
+  // Log the full error details including stack trace
+  logger.error({
+    error: {
+      message: err.message,
+      name: err.name,
+      stack: err.stack,
+      // If it's a Sequelize error, add additional details
+      ...(err.original && { 
+        sqlMessage: err.original.message,
+        sqlState: err.original.sqlState,
+        sqlError: err.original.sqlError 
+      })
+    }
+  }, 'Request error');
 
   // Default error status and message
   let statusCode = 500;
@@ -41,4 +57,4 @@ const errorHandler = (err, req, res, next) => {
   });
 };
 
-module.exports = errorHandler; 
+module.exports = errorHandler;

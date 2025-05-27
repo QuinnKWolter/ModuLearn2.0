@@ -1,229 +1,188 @@
 const express = require('express');
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
+const bcrypt  = require('bcrypt');
+const jwt     = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
+const { User } = require('../models');
+const { authenticateToken } = require('../middlewares/auth');
+
 const router = express.Router();
 
-// Import your User model here
-// const User = require('../models/user');
-
-// JWT Secret - should be in environment variables
-const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your_refresh_secret';
-
-// Generate tokens
-function generateTokens(user) {
-  const accessToken = jwt.sign(
-    { id: user.id, email: user.email, roles: user.roles },
-    JWT_SECRET,
-    { expiresIn: '1h' }
-  );
-  
-  const refreshToken = jwt.sign(
-    { id: user.id },
-    JWT_REFRESH_SECRET,
-    { expiresIn: '7d' }
-  );
-  
-  return { accessToken, refreshToken };
+/* ── ENV ─────────────────────────────────────────────────────────── */
+const { JWT_SECRET, JWT_REFRESH_SECRET } = process.env;
+if (!JWT_SECRET || !JWT_REFRESH_SECRET) {
+  throw new Error('JWT_SECRET and JWT_REFRESH_SECRET must be set');
 }
 
-// Signup route
+/* ── helpers ─────────────────────────────────────────────────────── */
+const generateTokens = (user) => {
+  const payload = { id: user.id, email: user.email, roles: user.roles };
+  return {
+    accessToken:  jwt.sign(payload, JWT_SECRET,         { expiresIn: '1h' }),
+    refreshToken: jwt.sign(payload, JWT_REFRESH_SECRET, { expiresIn: '7d' })
+  };
+};
+
+/* ────────────────────────────────────────────────────────────────────
+   POST /signup
+   ───────────────────────────────────────────────────────────────── */
 router.post(
   '/signup',
   [
     body('email').isEmail().withMessage('Enter a valid email'),
-    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters long'),
-    body('fullName').notEmpty().withMessage('Full name is required'),
+    body('password').isLength({ min: 8 }).withMessage('Password ≥ 8 chars'),
+    body('fullName').notEmpty().withMessage('Full name is required')
   ],
-  async (req, res) => {
-    // Validate input
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
+  async (req, res, next) => {
     try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
       const { email, password, fullName, roles } = req.body;
-      
-      // Check if email already exists
-      // const existingUser = await User.findOne({ email });
-      // if (existingUser) {
-      //   return res.status(400).json({ message: 'Email already in use' });
-      // }
-      
-      // Hash password
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(password, salt);
-      
-      // Create new user
-      // const user = new User({
-      //   email,
-      //   password: hashedPassword,
-      //   fullName,
-      //   roles: roles || { student: true }
-      // });
-      
-      // await user.save();
-      
-      // For now, mock a response
-      res.status(201).json({ message: 'User created successfully' });
-    } catch (error) {
-      console.error('Signup error:', error);
-      res.status(500).json({ message: 'Server error' });
-    }
-  }
-);
+      const existing = await User.findOne({ where: { email } });
 
-// Login route
-router.post(
-  '/login',
-  [
-    body('email').isEmail().withMessage('Enter a valid email'),
-    body('password').notEmpty().withMessage('Password is required'),
-  ],
-  async (req, res) => {
-    // Validate input
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
+      /* invited user tries to sign-up manually → redirect */
+      if (existing) {
+        if (existing.status === 'invited')
+          return res.status(200).json({ requiresInviteCompletion: true });
+        return res.status(409).json({ message: 'Email already in use' });
+      }
 
-    try {
-      const { email, password } = req.body;
-      
-      // Find user by email
-      // const user = await User.findOne({ email });
-      // if (!user) {
-      //   return res.status(401).json({ message: 'Invalid credentials' });
-      // }
-      
-      // Check password
-      // const isPasswordValid = await bcrypt.compare(password, user.password);
-      // if (!isPasswordValid) {
-      //   return res.status(401).json({ message: 'Invalid credentials' });
-      // }
-      
-      // Mock user for now
-      const mockUser = {
-        id: '12345',
+      const user = await User.create({
         email,
-        fullName: 'Mock User',
-        roles: { student: true }
-      };
-      
-      // Generate tokens
-      const { accessToken, refreshToken } = generateTokens(mockUser);
-      
-      // Store refresh token in database
-      // user.refreshToken = refreshToken;
-      // await user.save();
-      
-      res.json({
-        user: mockUser,
+        password,            // hashed by model hook
+        fullName,
+        roles: roles || undefined,
+        status: 'active',
+        emailVerified: false
+      });
+
+      const { accessToken, refreshToken } = generateTokens(user);
+      user.refreshToken = refreshToken;
+      await user.save();
+
+      res.status(201).json({
+        user: { id: user.id, email: user.email, fullName, roles: user.roles },
         accessToken,
         refreshToken
       });
-    } catch (error) {
-      console.error('Login error:', error);
-      res.status(500).json({ message: 'Server error' });
-    }
+    } catch (err) { next(err); }
   }
 );
 
-// Refresh token route
-router.post('/refresh', async (req, res) => {
-  const { refreshToken } = req.body;
-  
-  if (!refreshToken) {
-    return res.status(401).json({ message: 'Refresh token is required' });
-  }
-  
+/* ────────────────────────────────────────────────────────────────────
+   POST /accept-invite
+   ───────────────────────────────────────────────────────────────── */
+router.post('/accept-invite', async (req, res) => {
+  const { token, fullName, password } = req.body;
+  const user = await User.findOne({ where: { inviteToken: token, status: 'invited' } });
+  if (!user) return res.status(400).json({ msg: 'Invalid or expired invite.' });
+
+  user.fullName      = fullName;
+  user.password      = await bcrypt.hash(password, 10);
+  user.status        = 'active';
+  user.mustResetPw   = false;
+  user.emailVerified = true;
+  user.inviteToken   = null;
+  await user.save();
+
+  const { accessToken, refreshToken } = generateTokens(user);
+  res.json({ accessToken, refreshToken, user });
+});
+
+/* ────────────────────────────────────────────────────────────────────
+   POST /login
+   ───────────────────────────────────────────────────────────────── */
+router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  console.log('email', email);
+  console.log('password', password);
   try {
-    // Verify refresh token
+    console.log('finding user');
+    const user = await User.findOne({ where: { email } });
+    console.log('user', user);
+
+    /* cannot log in until invite accepted */
+    if (!user || user.status === 'invited' || !(await bcrypt.compare(password, user.password))) {
+      const msg = user?.status === 'invited'
+        ? 'Please accept your invitation to activate this account.'
+        : 'Invalid credentials';
+      return res.status(401).json({ message: msg });
+    }
+    console.log('user', user);
+
+    const { accessToken, refreshToken } = generateTokens(user);
+    user.refreshToken = refreshToken;
+    await user.save();
+
+    res.json({
+      accessToken,
+      refreshToken,
+      user: { id: user.id, email, fullName: user.fullName, roles: user.roles }
+    });
+  } catch { res.status(500).json({ message: 'Internal server error' }); }
+});
+
+/* ══════════════════════════════════════════════════════════════════ */
+/*  POST /refresh-token                                               */
+/* ══════════════════════════════════════════════════════════════════ */
+router.post('/refresh-token', async (req, res) => {
+  const { refreshToken } = req.body;
+  if (!refreshToken) {
+    return res.status(401).json({ message: 'Refresh token required' });
+  }
+
+  try {
     const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET);
-    
-    // Find user by id
-    // const user = await User.findById(decoded.id);
-    // if (!user || user.refreshToken !== refreshToken) {
-    //   return res.status(403).json({ message: 'Invalid refresh token' });
-    // }
-    
-    // Mock user for now
-    const mockUser = {
-      id: decoded.id,
-      email: 'user@example.com',
-      roles: { student: true }
-    };
-    
-    // Generate new access token
-    const accessToken = jwt.sign(
-      { id: mockUser.id, email: mockUser.email, roles: mockUser.roles },
-      JWT_SECRET,
-      { expiresIn: '1h' }
-    );
-    
-    res.json({ accessToken });
-  } catch (error) {
-    console.error('Token refresh error:', error);
-    res.status(403).json({ message: 'Invalid refresh token' });
+    const user = await User.findByPk(decoded.id);
+
+    if (!user || user.refreshToken !== refreshToken) {
+      return res.status(401).json({ message: 'Invalid refresh token' });
+    }
+
+    const tokens = generateTokens(user);
+    user.refreshToken = tokens.refreshToken;
+    await user.save();
+
+    res.json(tokens);
+  } catch {
+    res.status(401).json({ message: 'Invalid or expired refresh token' });
   }
 });
 
-// Verify token route
-router.get('/verify', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'Authorization token is required' });
-  }
-  
-  const token = authHeader.split(' ')[1];
-  
+/* ══════════════════════════════════════════════════════════════════ */
+/*  POST /logout                                                      */
+/* ══════════════════════════════════════════════════════════════════ */
+router.post('/logout', async (req, res, next) => {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    
-    // Find user by id
-    // const user = await User.findById(decoded.id);
-    // if (!user) {
-    //   return res.status(404).json({ message: 'User not found' });
-    // }
-    
-    // Mock user for now
-    const mockUser = {
-      id: decoded.id,
-      email: decoded.email,
-      fullName: 'Mock User',
-      roles: decoded.roles
-    };
-    
-    res.json(mockUser);
-  } catch (error) {
-    console.error('Token verification error:', error);
-    res.status(403).json({ message: 'Invalid token' });
-  }
-});
+    const { refreshToken } = req.body;
+    if (!refreshToken) {
+      return res.status(400).json({ message: 'Refresh token required' });
+    }
 
-// Logout route
-router.post('/logout', async (req, res) => {
-  const { refreshToken } = req.body;
-  
-  if (!refreshToken) {
-    return res.status(400).json({ message: 'Refresh token is required' });
-  }
-  
-  try {
-    // Find user with this refresh token and clear it
-    // await User.findOneAndUpdate(
-    //   { refreshToken },
-    //   { refreshToken: null }
-    // );
-    
+    const user = await User.findOne({ where: { refreshToken } });
+    if (user) {
+      user.refreshToken = null;
+      await user.save();
+    }
     res.json({ message: 'Logged out successfully' });
-  } catch (error) {
-    console.error('Logout error:', error);
-    res.status(500).json({ message: 'Server error' });
+  } catch (err) {
+    next(err);
   }
 });
 
-module.exports = router; 
+/* ══════════════════════════════════════════════════════════════════ */
+/*  GET /profile  – protected                                         */
+/* ══════════════════════════════════════════════════════════════════ */
+router.get('/profile', authenticateToken, async (req, res, next) => {
+  try {
+    const user = await User.findByPk(req.user.id, {
+      attributes: ['id', 'email', 'fullName', 'roles', 'avatar', 'lastLogin']
+    });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json(user);
+  } catch (err) {
+    next(err);
+  }
+});
+
+module.exports = router;

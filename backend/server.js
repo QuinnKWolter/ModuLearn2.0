@@ -1,65 +1,83 @@
-const express = require('express');
-const cors = require('cors');
-const cookieParser = require('cookie-parser');
+require('dotenv').config();
+
+const express       = require('express');
+const cors          = require('cors');
+const cookieParser  = require('cookie-parser');
+const helmet        = require('helmet');
+const pino          = require('pino');
+const pinoHttp      = require('pino-http');
 const { sequelize } = require('./models');
 
-// Routes
-const authRoutes = require('./routes/auth');
-// TODO: Import additional routes when implemented
+/* ────── Routers ────── */
+const authRoutes        = require('./routes/auth');
+const enrollmentRoutes  = require('./routes/enrollments');
+const usersRoutes       = require('./routes/users');
+const coursesRoutes     = require('./routes/courses');
+const authoringRoutes   = require('./routes/authoring');
+const sessionsRoutes    = require('./routes/sessions');
+const modulesRoutes     = require('./routes/modules');
+const proxyRoutes       = require('./routes/proxy');
 
-// Middleware
+/* ────── Middleware ────── */
 const errorHandler = require('./middlewares/errorHandler');
-// TODO: Import additional middleware when implemented
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+const app   = express();
+const PORT  = process.env.PORT || 3000;
+const log   = pino({ level: process.env.LOG_LEVEL || 'info' });
 
-// Middleware
+/* -------------------------------------------------------------- */
+/*  Global middleware                                             */
+/* -------------------------------------------------------------- */
+app.use(pinoHttp({ logger: log }));
+app.use(helmet({ crossOriginEmbedderPolicy: false, crossOriginResourcePolicy: false }));
+app.use(cors({
+  origin: process.env.CORS_ORIGIN?.split(',') || 'http://localhost:5173',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173', // Frontend URL
-  credentials: true
-}));
 
-// Routes
-app.use('/api/auth', authRoutes);
-// TODO: Add additional routes when implemented
+/* -------------------------------------------------------------- */
+/*  API routes                                                    */
+/* -------------------------------------------------------------- */
+app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
-// Simple health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'ModuLearn API is running' });
-});
+app.use('/api/auth',        authRoutes);
+app.use('/api/users',       usersRoutes);
+app.use('/api/enrollments', enrollmentRoutes);
+app.use('/api/courses',     coursesRoutes);
+app.use('/api/authoring',   authoringRoutes);
+app.use('/api/sessions',    sessionsRoutes);
+app.use('/api/modules',     modulesRoutes);
+app.use('/api/proxy',       proxyRoutes);
 
-// Login endpoint (already implemented in authRoutes)
-app.post('/api/login', (req, res) => {
-  const { email, password } = req.body;
-  // Implement login logic here - This will be handled by auth routes
-  res.json({ message: 'Login successful' });
-});
+/* -------------------------------------------------------------- */
+/*  404 handler (after all routes)                                */
+/* -------------------------------------------------------------- */
+app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 
-// Error handling middleware
+/* -------------------------------------------------------------- */
+/*  Error-handling middleware – keep LAST                         */
+/* -------------------------------------------------------------- */
 app.use(errorHandler);
 
-// Database connection and server start
-const startServer = async () => {
+/* -------------------------------------------------------------- */
+/*  Start                                                          */
+/* -------------------------------------------------------------- */
+(async () => {
   try {
     await sequelize.authenticate();
-    console.log('Database connection established successfully.');
-    
-    // Sync database models (set to false in production)
-    await sequelize.sync({ force: process.env.NODE_ENV === 'development' });
-    console.log('Database synchronized');
-    
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
-  } catch (error) {
-    console.error('Unable to connect to the database:', error);
+    log.info('Database connected');
+    await sequelize.sync({ force: false });
+    log.info('Models synced');
+    console.log('Session associations:', Object.keys(require('./models').Session.associations));
+    app.listen(PORT, () => log.info(`Server running on port ${PORT}`));
+  } catch (err) {
+    log.error('Startup failure:', err);
+    process.exit(1);
   }
-};
+})();
 
-startServer();
-
-module.exports = app; // For testing
+module.exports = app;

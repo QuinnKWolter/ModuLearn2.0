@@ -1,56 +1,28 @@
-const User = require('./user');
-const Course = require('./course');
-const Module = require('./module');
-const Progress = require('./progress');
-const sequelize = require('../config/database');
+const fs       = require('fs');
+const path     = require('path');
+const { Sequelize, DataTypes } = require('sequelize');
+const cfg      = require('../config/database');          // your sequelize-init helper
+const sequelize = cfg;                                   // ← already returns a Sequelize
 
-// User-Course relationship (many-to-many)
-const Enrollment = sequelize.define('Enrollment', {
-  role: {
-    type: DataTypes.STRING,
-    allowNull: false,
-    defaultValue: 'student'
-  },
-  isActive: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: true
+const db = {};
+
+// Load every *.js file except this one
+fs.readdirSync(__dirname)
+  .filter(f => f !== 'index.js' && f.endsWith('.js'))
+  .forEach(f => {
+    // Every model file exports  (sequelize, DataTypes) => Model
+    const model = require(path.join(__dirname, f))(sequelize, DataTypes);
+    db[model.name] = model;
+  });
+
+// Run association hooks once all models are present
+Object.values(db).forEach(model => {
+  if (typeof model.associate === 'function') {
+    model.associate(db);
   }
 });
 
-User.belongsToMany(Course, { through: Enrollment });
-Course.belongsToMany(User, { through: Enrollment });
+db.sequelize = sequelize;
+db.Sequelize = Sequelize;
 
-// Course-Module relationship (many-to-many)
-const CourseModule = sequelize.define('CourseModule', {
-  order: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    defaultValue: 0
-  },
-  isRequired: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: true
-  }
-});
-
-Course.belongsToMany(Module, { through: CourseModule });
-Module.belongsToMany(Course, { through: CourseModule });
-
-// Progress relationships
-Progress.belongsTo(User);
-Progress.belongsTo(Module);
-Progress.belongsTo(Course);
-
-User.hasMany(Progress);
-Module.hasMany(Progress);
-Course.hasMany(Progress);
-
-module.exports = {
-  User,
-  Course,
-  Module,
-  Progress,
-  Enrollment,
-  CourseModule,
-  sequelize
-}; 
+module.exports = db;

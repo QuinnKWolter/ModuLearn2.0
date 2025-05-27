@@ -1,8 +1,11 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { FaLock, FaCubes, FaChartLine } from 'react-icons/fa';
+import { useAuth } from '../contexts/AuthContext';
 
 function Home() {
+  const { isAuthenticated } = useAuth();
+
   return (
     <div className="flex flex-col items-center justify-center bg-base-100 text-base-content py-10">
       <div className="text-center mb-10">
@@ -11,12 +14,20 @@ function Home() {
           A platform for secure, modular delivery of smart e-Learning content.
         </p>
         <div className="flex justify-center space-x-4">
-          <Link to="/login" className="btn btn-primary btn-lg">
-            <FaLock className="mr-2" /> Sign In
-          </Link>
-          <Link to="/signup" className="btn btn-outline btn-lg">
-            <FaCubes className="mr-2" /> Sign Up
-          </Link>
+          {!isAuthenticated ? (
+            <>
+              <Link to="/login" className="btn btn-primary btn-lg">
+                <FaLock className="mr-2" /> Sign In
+              </Link>
+              <Link to="/signup" className="btn btn-outline btn-lg">
+                <FaCubes className="mr-2" /> Sign Up
+              </Link>
+            </>
+          ) : (
+            <Link to="/dashboard" className="btn btn-primary btn-lg">
+              Go to Dashboard
+            </Link>
+          )}
         </div>
       </div>
 

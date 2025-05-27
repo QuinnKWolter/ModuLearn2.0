@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { FaSun, FaMoon, FaBars, FaTimes, FaUser, FaSignOutAlt, FaSignInAlt } from 'react-icons/fa';
+import { FaSun, FaMoon, FaBars, FaTimes, FaSignInAlt } from 'react-icons/fa';
 import logo from '../assets/logo_128.png';
+import { useAuth } from '../contexts/AuthContext';
 
 function Navbar() {
   const [theme, setTheme] = useState(() => {
-    // Initialize theme from localStorage or default to 'cupcake'
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme) {
       document.documentElement.setAttribute('data-theme', savedTheme);
@@ -14,16 +14,16 @@ function Navbar() {
     document.documentElement.setAttribute('data-theme', 'cupcake');
     return 'cupcake';
   });
-  
+
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false); // This will be replaced with actual auth state
+  const { isAuthenticated, user, logout } = useAuth();
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
   }, [theme]);
 
-  const toggleTheme = async () => {
+  const toggleTheme = () => {
     const newTheme = theme === 'cupcake' ? 'abyss' : 'cupcake';
     setTheme(newTheme);
   };
@@ -32,10 +32,64 @@ function Navbar() {
     setIsMenuOpen(!isMenuOpen);
   };
 
-  // Mock logout function - will be replaced with actual auth logic
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    // Add actual logout logic here
+  const NavItems = ({ isMobile = false, closeMenu = () => {} }) => {
+    const { isAuthenticated, user, logout } = useAuth();
+    
+    return (
+      <>
+        <Link
+          to="/"
+          className={`text-base-content transition-colors duration-300 cursor-pointer hover:text-primary ${isMobile ? 'px-2 py-1' : ''}`}
+          onClick={isMobile ? closeMenu : undefined}
+        >
+          Home
+        </Link>
+        <Link
+          to="/about"
+          className={`text-base-content transition-colors duration-300 cursor-pointer hover:text-primary ${isMobile ? 'px-2 py-1' : ''}`}
+          onClick={isMobile ? closeMenu : undefined}
+        >
+          About
+        </Link>
+        <Link
+          to="/contact"
+          className={`text-base-content transition-colors duration-300 cursor-pointer hover:text-primary ${isMobile ? 'px-2 py-1' : ''}`}
+          onClick={isMobile ? closeMenu : undefined}
+        >
+          Contact
+        </Link>
+        
+        {isAuthenticated && (
+          <Link
+            to="/dashboard"
+            className={`text-base-content transition-colors duration-300 cursor-pointer hover:text-primary ${isMobile ? 'px-2 py-1' : ''}`}
+            onClick={isMobile ? closeMenu : undefined}
+          >
+            Dashboard
+          </Link>
+        )}
+        
+        {isAuthenticated ? (
+          <div className="dropdown dropdown-end">
+            <label tabIndex={0} className="text-base-content relative transition-colors duration-300 cursor-pointer hover:text-primary">
+              {user.fullName}
+            </label>
+            <ul tabIndex={0} className="mt-3 p-2 shadow menu menu-compact dropdown-content bg-base-200 rounded-box w-52">
+              <li><Link to="/account">Account</Link></li>
+              <li><button onClick={logout}>Logout</button></li>
+            </ul>
+          </div>
+        ) : (
+          <Link
+            to="/login"
+            className="text-base-content transition-colors duration-300 cursor-pointer hover:text-primary px-2 py-1 flex items-center"
+            onClick={isMobile ? closeMenu : undefined}
+          >
+            <span>Login</span> <FaSignInAlt className="ml-2" />
+          </Link>
+        )}
+      </>
+    );
   };
 
   return (
@@ -47,126 +101,28 @@ function Navbar() {
             ModuLearn
           </span>
         </Link>
-        
-        {/* Mobile menu button */}
-        <button 
-          className="md:hidden text-base-content focus:outline-none" 
+
+        <button
+          className="md:hidden text-base-content focus:outline-none"
           onClick={toggleMenu}
         >
           {isMenuOpen ? <FaTimes size={24} /> : <FaBars size={24} />}
         </button>
-        
-        {/* Desktop navigation */}
+
         <nav className="hidden md:flex items-center space-x-4">
-          <Link to="/" className="text-base-content relative transition-colors duration-300 cursor-pointer hover:text-primary">
-            Home
-          </Link>
-          <Link to="/about" className="text-base-content relative transition-colors duration-300 cursor-pointer hover:text-primary">
-            About
-          </Link>
-          <Link to="/contact" className="text-base-content relative transition-colors duration-300 cursor-pointer hover:text-primary">
-            Contact
-          </Link>
-          
-          {isAuthenticated ? (
-            <>
-              <Link to="/dashboard" className="text-base-content relative transition-colors duration-300 cursor-pointer hover:text-primary">
-                Dashboard
-              </Link>
-              <div className="dropdown dropdown-end">
-                <div tabIndex={0} className="btn btn-ghost btn-circle avatar">
-                  <div className="w-10 rounded-full">
-                    <FaUser className="w-6 h-6 mx-auto mt-2" />
-                  </div>
-                </div>
-                <ul tabIndex={0} className="mt-3 p-2 shadow menu menu-sm dropdown-content bg-base-200 rounded-box w-52">
-                  <li><Link to="/profile">Profile</Link></li>
-                  <li><Link to="/settings">Settings</Link></li>
-                  <li><button onClick={handleLogout}>Logout <FaSignOutAlt className="ml-2" /></button></li>
-                </ul>
-              </div>
-            </>
-          ) : (
-            <Link to="/login" className="text-base-content relative transition-colors duration-300 cursor-pointer hover:text-primary">
-              Login <FaSignInAlt className="inline ml-1" />
-            </Link>
-          )}
-          
+          <NavItems />
+
           <button onClick={toggleTheme} className="ml-4 cursor-pointer">
             {theme === 'cupcake' ? <FaSun className="text-yellow-500" /> : <FaMoon className="text-gray-800" />}
           </button>
         </nav>
       </div>
-      
-      {/* Mobile menu */}
+
       {isMenuOpen && (
         <div className="md:hidden bg-base-200 absolute top-16 left-0 right-0 p-4 shadow-md">
           <nav className="flex flex-col space-y-4 pb-4">
-            <Link 
-              to="/" 
-              className="text-base-content transition-colors duration-300 cursor-pointer hover:text-primary px-2 py-1"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Home
-            </Link>
-            <Link 
-              to="/about" 
-              className="text-base-content transition-colors duration-300 cursor-pointer hover:text-primary px-2 py-1"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              About
-            </Link>
-            <Link 
-              to="/contact" 
-              className="text-base-content transition-colors duration-300 cursor-pointer hover:text-primary px-2 py-1" 
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Contact
-            </Link>
-            
-            {isAuthenticated ? (
-              <>
-                <Link 
-                  to="/dashboard" 
-                  className="text-base-content transition-colors duration-300 cursor-pointer hover:text-primary px-2 py-1"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Dashboard
-                </Link>
-                <Link 
-                  to="/profile" 
-                  className="text-base-content transition-colors duration-300 cursor-pointer hover:text-primary px-2 py-1"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Profile
-                </Link>
-                <Link 
-                  to="/settings" 
-                  className="text-base-content transition-colors duration-300 cursor-pointer hover:text-primary px-2 py-1"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Settings
-                </Link>
-                <button 
-                  onClick={() => {
-                    handleLogout();
-                    setIsMenuOpen(false);
-                  }}
-                  className="text-base-content transition-colors duration-300 cursor-pointer hover:text-primary px-2 py-1 text-left flex items-center"
-                >
-                  Logout <FaSignOutAlt className="ml-2" />
-                </button>
-              </>
-            ) : (
-              <Link 
-                to="/login" 
-                className="text-base-content transition-colors duration-300 cursor-pointer hover:text-primary px-2 py-1 flex items-center"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                Login <FaSignInAlt className="ml-2" />
-              </Link>
-            )}
-            
+            <NavItems isMobile={true} closeMenu={() => setIsMenuOpen(false)} />
+
             <div className="flex items-center">
               <span className="mr-2">Theme:</span>
               <button onClick={toggleTheme} className="cursor-pointer">
@@ -180,4 +136,4 @@ function Navbar() {
   );
 }
 
-export default Navbar; 
+export default Navbar;
